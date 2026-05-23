@@ -1,4 +1,5 @@
 import { normalizeAnalysis } from "@/lib/analysis";
+import { generateDecisions } from "@/lib/decision-engine";
 
 export const runtime = "nodejs";
 
@@ -50,10 +51,7 @@ function extractJson(text: string) {
     return JSON.parse(cleaned);
   } catch {
     const match = cleaned.match(/\{[\s\S]*\}/);
-    if (!match) {
-      throw new Error("Gemini did not return JSON.");
-    }
-
+    if (!match) throw new Error("Gemini did not return JSON.");
     return JSON.parse(match[0]);
   }
 }
@@ -73,7 +71,10 @@ export async function POST(request: Request) {
     const image = formData.get("image");
 
     if (!(image instanceof File)) {
-      return Response.json({ error: "A coffee image is required." }, { status: 400 });
+      return Response.json(
+        { error: "A coffee image is required." },
+        { status: 400 }
+      );
     }
 
     if (!image.type.startsWith("image/")) {
@@ -93,6 +94,7 @@ export async function POST(request: Request) {
 
     const buffer = Buffer.from(await image.arrayBuffer());
     const base64Image = buffer.toString("base64");
+
     const model = process.env.GEMINI_MODEL ?? "gemini-2.5-flash";
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
@@ -145,17 +147,28 @@ export async function POST(request: Request) {
       );
     }
 
-    return Response.json(
-      normalizeAnalysis({
-        ...extractJson(text),
-        timestamp: new Date().toISOString(),
-      })
-    );
+    // ✅ STEP 1: STRUCTURED ANALYSIS
+    const analysis = normalizeAnalysis({
+      ...extractJson(text),
+      timestamp: new Date().toISOString(),
+    });
+
+    // ⚙️ STEP 2: DECISION INTELLIGENCE LAYER (NEW)
+    const decisions = generateDecisions(analysis);
+
+    // 🚀 FINAL OUTPUT: ANALYSIS + DECISIONS
+    return Response.json({
+      analysis,
+      decisions,
+    });
   } catch (error) {
     console.error("Coffee analysis failed:", error);
 
     return Response.json(
-      { error: "Unable to analyze this image. Try another clear coffee lot photo." },
+      {
+        error:
+          "Unable to analyze this image. Try another clear coffee lot photo.",
+      },
       { status: 500 }
     );
   }
